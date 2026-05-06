@@ -1,4 +1,4 @@
-// start.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// start.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 #include <iostream>
@@ -68,7 +68,7 @@ int CreateDwords(HKEY subKey, LPCWSTR value, DWORD defVal)
 
 int main(int argc, char* argv[])
 {
-	std::cout << "Initializing...\n���������������\n";
+	std::cout << "Initializing...\n--------------------\n";
 	PROCESSENTRY32 entry;
 	entry.dwSize = sizeof(PROCESSENTRY32);
 	std::wstring ok = L"StartMenuExperienceHost.exe";
