@@ -2,18 +2,31 @@
 #include "Helpers.h"
 #include "misc.h"
 
-
 DWORD dwSize = sizeof(DWORD), dwOpacity = 0, dwLuminosity = 0, dwHide = 0, dwBorder = 0, dwRec = 0;
 
 double oldSrchHeight;
 Thickness oldSrchMar;
 int64_t token = NULL, token_vis = NULL;
 
+static bool g_isExplorer = false;
+
+static bool DetectExplorer()
+{
+	wchar_t name[MAX_PATH];
+	if (GetModuleFileNameW(NULL, name, MAX_PATH))
+	{
+		std::wstring path(name);
+		for (auto& c : path) c = towlower(c);
+		return path.find(L"explorer.exe") != std::wstring::npos;
+	}
+	return false;
+}
 
 VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
 	: m_selfPtr(this, winrt::take_ownership_from_abi_t{}),
 	m_XamlDiagnostics(site.as<IXamlDiagnostics>())
 {
+	g_isExplorer = DetectExplorer();
 	this->AddRef();
 
 	HANDLE thread = CreateThread(
@@ -34,6 +47,55 @@ void VisualTreeWatcher::AdviseVisualTreeChange() {
 	winrt::check_hresult(treeService->AdviseVisualTreeChange(this));
 }
 
+void VisualTreeWatcher::TryApplyAcrylicTint(InstanceHandle handle)
+{
+	try
+	{
+		IInspectable obj;
+		winrt::check_hresult(m_XamlDiagnostics->GetIInspectableFromHandle(handle,
+			reinterpret_cast<::IInspectable**>(winrt::put_abi(obj))));
+
+		auto panel = obj.try_as<Panel>();
+		if (panel)
+		{
+			auto bg = panel.Background();
+			if (bg)
+			{
+				auto acrylic = bg.try_as<AcrylicBrush>();
+				if (acrylic)
+				{
+					dwOpacity = GetVal(L"TintOpacity");
+					dwLuminosity = GetVal(L"TintLuminosityOpacity");
+					if (dwOpacity > 100) dwOpacity = 100;
+					if (dwLuminosity > 100) dwLuminosity = 100;
+					acrylic.TintOpacity(double(dwOpacity) / 100);
+					acrylic.TintLuminosityOpacity(double(dwLuminosity) / 100);
+					return;
+				}
+			}
+		}
+		auto border = obj.try_as<Border>();
+		if (border)
+		{
+			auto bg = border.Background();
+			if (bg)
+			{
+				auto acrylic = bg.try_as<AcrylicBrush>();
+				if (acrylic)
+				{
+					dwOpacity = GetVal(L"TintOpacity");
+					dwLuminosity = GetVal(L"TintLuminosityOpacity");
+					if (dwOpacity > 100) dwOpacity = 100;
+					if (dwLuminosity > 100) dwLuminosity = 100;
+					acrylic.TintOpacity(double(dwOpacity) / 100);
+					acrylic.TintLuminosityOpacity(double(dwLuminosity) / 100);
+				}
+			}
+		}
+	}
+	catch (...) {}
+}
+
 HRESULT VisualTreeWatcher::OnElementStateChanged(InstanceHandle, VisualElementState, LPCWSTR) noexcept
 {
 	return S_OK;
@@ -45,25 +107,37 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 	{
 		const std::wstring_view type{ element.Type, SysStringLen(element.Type) };
 		const std::wstring_view name{ element.Name, SysStringLen(element.Name) };
+
 		if (name == L"AcrylicBorder")
 		{
 			dwOpacity = GetVal(L"TintOpacity");
 			dwLuminosity = GetVal(L"TintLuminosityOpacity");
 
-			// apply the things
 			if (dwOpacity > 100) dwOpacity = 100;
 			if (dwLuminosity > 100) dwLuminosity = 100;
 			Border acrylicBorder = FromHandle<Border>(element.Handle);
 			acrylicBorder.Background().as<AcrylicBrush>().TintOpacity(double(dwOpacity) / 100);
 			acrylicBorder.Background().as<AcrylicBrush>().TintLuminosityOpacity(double(dwLuminosity) / 100);
-			//acrylicBorder.Background().as<AcrylicBrush>().Opacity(0);
-			//Microsoft::UI::Xaml::Controls::BackdropMaterial::SetApplyToRootOrPageBackground(acrylicBorder.as<Control>(), true);
 		}
 		else if (name == L"BackgroundElement" && type == L"Windows.UI.Xaml.Controls.Border")
 		{
-			// w10 hamburger menu fix
-			auto backElement = FromHandle<Border>(element.Handle);
-			backElement.Background().as<AcrylicBrush>().TintOpacity(0);
+			if (g_isExplorer)
+			{
+				dwBorder = GetVal(L"HideBorder");
+				auto backElement = FromHandle<Border>(element.Handle);
+				auto bg = backElement.Background();
+				if (bg)
+				{
+					auto acrylic = bg.try_as<AcrylicBrush>();
+					if (acrylic && dwBorder == 1)
+						acrylic.TintOpacity(0);
+				}
+			}
+			else
+			{
+				auto backElement = FromHandle<Border>(element.Handle);
+				backElement.Background().as<AcrylicBrush>().TintOpacity(0);
+			}
 		}
 		else if (type == L"StartDocked.SearchBoxToggleButton")
 		{
@@ -77,9 +151,7 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 				srch.Margin({0});
 			}
 
-			// recommended fix
 			if (dwHide == 1) pad = srch.ActualHeight() + srch.Padding().Bottom + srch.Padding().Top + 55;
-
 		}
 		else if (name == L"RootGrid")
 		{
@@ -147,7 +219,41 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 				suggBtn.Visibility(Visibility::Collapsed);
 			}
 		}
-		//ChangeLayout(name, type, element);
+
+		// Explorer-specific: system tray overflow panel
+		if (g_isExplorer)
+		{
+			if (name == L"OverflowFlyoutBackgroundBorder")
+			{
+				dwOpacity = GetVal(L"TintOpacity");
+				dwLuminosity = GetVal(L"TintLuminosityOpacity");
+				if (dwOpacity > 100) dwOpacity = 100;
+				if (dwLuminosity > 100) dwLuminosity = 100;
+				auto border = FromHandle<Border>(element.Handle);
+				auto bg = border.Background();
+				if (bg)
+				{
+					auto acrylic = bg.try_as<AcrylicBrush>();
+					if (acrylic)
+					{
+						acrylic.TintOpacity(double(dwOpacity) / 100);
+						acrylic.TintLuminosityOpacity(double(dwLuminosity) / 100);
+					}
+				}
+			}
+			else if (type == L"SystemTray.NotificationAreaOverflow")
+			{
+				TryApplyAcrylicTint(element.Handle);
+			}
+		}
+
+		// Generic catch-all for any element with acrylic brush (both processes)
+		if (type.find(L"Border") != std::wstring_view::npos
+			|| type.find(L"Panel") != std::wstring_view::npos
+			|| type.find(L"Grid") != std::wstring_view::npos)
+		{
+			TryApplyAcrylicTint(element.Handle);
+		}
 	}
 	return S_OK;
 }

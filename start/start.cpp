@@ -68,7 +68,7 @@ int CreateDwords(HKEY subKey, LPCWSTR value, DWORD defVal)
 
 int main(int argc, char* argv[])
 {
-	std::cout << "Initializing...\nÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ\n";
+	std::cout << "Initializing...\nï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½\n";
 	PROCESSENTRY32 entry;
 	entry.dwSize = sizeof(PROCESSENTRY32);
 	std::wstring ok = L"StartMenuExperienceHost.exe";
@@ -85,28 +85,6 @@ int main(int argc, char* argv[])
 			ok = ws;
 		}
 	}
-	DWORD pid = 0;
-	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
-
-	if (Process32First(snapshot, &entry) == TRUE)
-	{
-		while (Process32Next(snapshot, &entry) == TRUE)
-		{
-			if (wcscmp(entry.szExeFile, ok.c_str()) == 0)
-			{
-				pid = entry.th32ProcessID;
-			}
-		}
-	}
-	CloseHandle(snapshot);
-	if (pid == 0)
-	{
-		std::wcout << "\n- " << ok.c_str() << " is not running.";
-		std::cout << "\n\n";
-		return 0;
-	}
-	std::wcout << "\n- " << ok.c_str() << " PID: " << pid;
-
 	typedef HRESULT(*InitializeXamlDiagnosticsExProto)(_In_ LPCWSTR endPointName, _In_ DWORD pid, _In_opt_ LPCWSTR wszDllXamlDiagnostics, _In_ LPCWSTR wszTAPDllName, _In_opt_ CLSID tapClsid, _In_ LPCWSTR wszInitializationData);
 	InitializeXamlDiagnosticsExProto InitializeXamlDiagnosticsExFn = (InitializeXamlDiagnosticsExProto)GetProcAddress(LoadLibraryEx(L"Windows.UI.Xaml.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32), "InitializeXamlDiagnosticsEx");
 
@@ -123,8 +101,7 @@ int main(int argc, char* argv[])
 	{
 		std::cout << "\n- Opened HKCU\\SOFTWARE\\TranslucentSM registry key.";
 	}
-	
-	// do for each key
+
 	CreateDwords(subKey, L"HideSearch", 0);
 	CreateDwords(subKey, L"HideBorder", 0);
 	CreateDwords(subKey, L"EditButton", 1);
@@ -134,15 +111,12 @@ int main(int argc, char* argv[])
 
 	RegCloseKey(subKey);
 
-	// Get the path to the current executable
 	wchar_t path[MAX_PATH];
 	GetModuleFileNameW(NULL, path, MAX_PATH);
 	std::wstring pathStr = path;
 
-	// Get the path to the current directory
 	std::wstring dir = pathStr.substr(0, pathStr.find_last_of(L"\\"));
 
-	// Get the path to the DLL
 	std::wstring dllPath = dir + L"\\";
 	std::wstring fn;
 
@@ -165,7 +139,6 @@ int main(int argc, char* argv[])
 		fn = L"StartTAP.dll";
 	}
 
-	// Convert dllPath to WCHAR
 	const wchar_t* dllPathW = dllPath.c_str();
 
 	if (!std::filesystem::exists(dllPathW))
@@ -181,9 +154,142 @@ int main(int argc, char* argv[])
 		std::cout << " permissions.";
 	}
 
-	static constexpr GUID temp = { 0x36162bd3, 0x3531, 0x4131, { 0x9b, 0x8b, 0x7f, 0xb1, 0xa9, 0x91, 0xef, 0x51 } };
-	InitializeXamlDiagnosticsExFn(L"VisualDiagConnection1", pid, NULL, dllPathW, temp, L"");
-	std::wcout << "\n- Injected " << dllPathW << " into " << ok.c_str(); // ig always succeeds
+	static constexpr GUID tapClsid = { 0x36162bd3, 0x3531, 0x4131, { 0x9b, 0x8b, 0x7f, 0xb1, 0xa9, 0x91, 0xef, 0x51 } };
+
+	auto FindPid = [](const std::wstring& name) -> DWORD {
+		PROCESSENTRY32 pe;
+		pe.dwSize = sizeof(PROCESSENTRY32);
+		HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+		DWORD p = 0;
+		if (Process32First(snap, &pe) == TRUE)
+		{
+			while (Process32Next(snap, &pe) == TRUE)
+			{
+				if (wcscmp(pe.szExeFile, name.c_str()) == 0)
+				{
+					p = pe.th32ProcessID;
+				}
+			}
+		}
+		CloseHandle(snap);
+		return p;
+	};
+
+	auto InjectIntoProcess = [&](const std::wstring& procName) {
+		DWORD pid = FindPid(procName);
+		if (pid == 0)
+		{
+			std::wcout << L"\n- " << procName << L" is not running.";
+			return;
+		}
+		std::wcout << L"\n- " << procName << L" PID: " << pid;
+
+		HRESULT hr = InitializeXamlDiagnosticsExFn(L"VisualDiagConnection1", pid, NULL, dllPathW, tapClsid, L"");
+		if (SUCCEEDED(hr))
+			std::wcout << L"\n- Injected " << dllPathW << L" into " << procName;
+		else
+			std::wcout << L"\n- Failed to inject into " << procName << L" (HRESULT: 0x" << std::hex << hr << L")";
+	};
+
+	auto InjectIntoExplorerViaHook = [&](const wchar_t* dllPathW) {
+		DWORD pid = FindPid(L"explorer.exe");
+		if (pid == 0)
+		{
+			std::wcout << L"\n- explorer.exe is not running.";
+			return;
+		}
+		std::wcout << L"\n- explorer.exe PID: " << pid;
+
+		HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+		if (!hTray)
+		{
+			std::wcout << L"\n- Could not find Shell_TrayWnd window.";
+			return;
+		}
+		DWORD tid = GetWindowThreadProcessId(hTray, nullptr);
+		std::wcout << L"\n- Taskbar thread ID: " << tid;
+
+		HANDLE hStart = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Start");
+		HANDLE hReady = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Ready");
+		if (!hStart || !hReady)
+		{
+			std::wcout << L"\n- Failed to create signaling events.";
+			if (hStart) CloseHandle(hStart);
+			if (hReady) CloseHandle(hReady);
+			return;
+		}
+
+		HMODULE hDll = LoadLibraryW(dllPathW);
+		if (!hDll)
+		{
+			std::wcout << L"\n- Failed to load " << dllPathW << L" in current process (error " << GetLastError() << L").";
+			CloseHandle(hStart);
+			CloseHandle(hReady);
+			return;
+		}
+
+		auto hookProc = (HOOKPROC)GetProcAddress(hDll, "CallWndProc");
+		if (!hookProc)
+		{
+			std::wcout << L"\n- Failed to get CallWndProc address (error " << GetLastError() << L").";
+			FreeLibrary(hDll);
+			CloseHandle(hStart);
+			CloseHandle(hReady);
+			return;
+		}
+
+		std::wcout << L"\n- Injecting " << dllPathW << L" into explorer.exe via SetWindowsHookEx...";
+
+		HHOOK hHook = SetWindowsHookExW(WH_CALLWNDPROC, hookProc, hDll, tid);
+		if (!hHook)
+		{
+			std::wcout << L"\n- SetWindowsHookEx failed (error " << GetLastError() << L").";
+			FreeLibrary(hDll);
+			CloseHandle(hStart);
+			CloseHandle(hReady);
+			return;
+		}
+
+		PostMessageW(hTray, WM_NULL, 0, 0);
+
+		std::wcout << L"\n- Waiting for DLL to initialize XAML Diagnostics (timeout 20s)...";
+
+		DWORD waitResult = WaitForSingleObject(hReady, 20000);
+		if (waitResult == WAIT_OBJECT_0)
+		{
+			std::wcout << L"\n- DLL initialized successfully!";
+		}
+		else if (waitResult == WAIT_TIMEOUT)
+		{
+			std::wcout << L"\n- Timed out waiting for DLL initialization.";
+		}
+		else
+		{
+			std::wcout << L"\n- Wait failed (error " << GetLastError() << L").";
+		}
+
+		UnhookWindowsHookEx(hHook);
+		FreeLibrary(hDll);
+		CloseHandle(hStart);
+		CloseHandle(hReady);
+	};
+
+	if (wcscmp(ok.c_str(), L"StartMenuExperienceHost.exe") == 0)
+	{
+		InjectIntoProcess(L"StartMenuExperienceHost.exe");
+		InjectIntoProcess(L"SearchHost.exe");
+		InjectIntoProcess(L"ShellExperienceHost.exe");
+		InjectIntoExplorerViaHook(dllPathW);
+	}
+	else if (ok == L"explorer.exe")
+	{
+		InjectIntoExplorerViaHook(dllPathW);
+	}
+	else
+	{
+		InjectIntoProcess(ok);
+	}
+
 	std::cout << "\n\n";
 	return 0;
 }

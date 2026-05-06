@@ -22,6 +22,7 @@ public:
 	VisualTreeWatcher& operator=(VisualTreeWatcher&&) = delete;
 
 	void AdviseVisualTreeChange();
+	void TryApplyAcrylicTint(InstanceHandle handle);
 
 private:
 	HRESULT STDMETHODCALLTYPE OnVisualTreeChange(ParentChildRelation relation, VisualElement element, VisualMutationType mutationType) override;
@@ -35,7 +36,7 @@ private:
 
 		return obj.as<T>();
 	}
-	
+
 	winrt::com_ptr<IXamlDiagnostics> m_XamlDiagnostics;
 	winrt::com_ptr<VisualTreeWatcher> m_selfPtr;
 };
