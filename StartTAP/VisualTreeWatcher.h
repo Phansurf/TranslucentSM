@@ -7,9 +7,8 @@ static double pad = 15;
 
 extern double oldSrchHeight;
 extern Thickness oldSrchMar;
-static bool rechide = false, srchhide = false;
 
-extern DWORD dwSize, dwOpacity, dwLuminosity, dwHide, dwBorder, dwRec;
+extern DWORD dwOpacity, dwLuminosity, dwHide, dwBorder, dwRec;
 
 struct VisualTreeWatcher : winrt::implements<VisualTreeWatcher, IVisualTreeServiceCallback2, winrt::non_agile>
 {

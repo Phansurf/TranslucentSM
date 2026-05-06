@@ -2,7 +2,7 @@
 #include "Helpers.h"
 #include "misc.h"
 
-DWORD dwSize = sizeof(DWORD), dwOpacity = 0, dwLuminosity = 0, dwHide = 0, dwBorder = 0, dwRec = 0;
+DWORD dwOpacity = 0, dwLuminosity = 0, dwHide = 0, dwBorder = 0, dwRec = 0;
 
 double oldSrchHeight;
 Thickness oldSrchMar;

@@ -60,10 +60,6 @@ HRESULT AddSettingsPanel(Grid rootGrid)
 		});
 
 
-	if (dwRec == 1) rechide = true;
-	if (dwHide == 1) srchhide = true;
-
-
 	auto srchBoxElm = FindDescendantByName(rootGrid, L"StartMenuSearchBox");
 	if (srchBoxElm != nullptr)
 	{
@@ -77,13 +73,11 @@ HRESULT AddSettingsPanel(Grid rootGrid)
 		if (dwHide == 1)
 		{
 			checkBox.IsChecked(true);
-			srchhide = true;
 			pad = srchBox.ActualHeight() + srchBox.Padding().Bottom + srchBox.Padding().Top + 55;
 		}
 		// events
 		checkBox.Checked([](Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&) {
 			SetVal(subKey, L"HideSearch", 1);
-			srchhide = true;
 
 			srchBox.Height(0);
 			srchBox.Margin({ 0 });
@@ -92,7 +86,6 @@ HRESULT AddSettingsPanel(Grid rootGrid)
 
 		checkBox.Unchecked([](Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&) {
 			SetVal(subKey, L"HideSearch", 0);
-			srchhide = false;
 
 			srchBox.Height(oldSrchHeight);
 			srchBox.Margin(oldSrchMar);
@@ -148,7 +141,6 @@ HRESULT AddSettingsPanel(Grid rootGrid)
 		checkBox.Checked([](Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&)
 			{
 				SetVal(subKey, L"HideRecommended", 1);
-				rechide = true;
 
 				if (token == NULL)
 				{
@@ -177,7 +169,6 @@ HRESULT AddSettingsPanel(Grid rootGrid)
 		checkBox.Unchecked([](Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&)
 			{
 				SetVal(subKey, L"HideRecommended", 0);
-				rechide = false;
 
 				suggContainer.Visibility(Visibility::Visible);
 				suggBtn.Visibility(Visibility::Visible);
