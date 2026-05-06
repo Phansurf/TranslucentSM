@@ -1,21 +1,74 @@
 # TranslucentSM
-A lightweight utility that makes the Windows Start Menu translucent/transparent.<br>
-This app utilizes XAML Diagnostics to inject a dll into a process and modifies the XAML.
 
-> [!NOTE]
-> This project will be inactive for a while. I'm currently busy.
+A lightweight utility that makes Windows UI panels translucent using acrylic brush effects via XAML Diagnostics injection.
 
-# Settings
-For now it uses registry to store the values. You can find them at ```HKEY_CURRENT_USER\SOFTWARE\TranslucentSM```. <br>
-There are two features currently. All values must be between 1 and 9.<br>
-**After you change the settings, you must terminate StartMenuExperienceHost.exe and relaunch the app.**
-### `TintLuminosityOpacity` 
-Controls the luminosity brush (some secondary layer ig). 
+This is a fork of [rounk-ctrl/TranslucentSM](https://github.com/rounk-ctrl/TranslucentSM) with extended panel coverage and additional features.
 
-### `TintOpacity`
-The main acrylic brush.
+## Features
 
-# Screenshots
-![image](https://github.com/rounk-ctrl/TranslucentSM/assets/70931017/4a569f8c-f66a-45d3-9841-07d4a39a5063)
+### Acrylic transparency for all major panels
 
-![image](https://github.com/rounk-ctrl/TranslucentSM/assets/70931017/2987e096-7334-4172-a25b-0ddf9ee2665f)
+| Panel | Process | Status |
+|-------|---------|--------|
+| Start Menu | `StartMenuExperienceHost.exe` | Original |
+| Search Menu | `SearchHost.exe` | Added |
+| Notification Center & Calendar | `ShellExperienceHost.exe` | Added |
+| System Tray Overflow Panel (`^`) | `explorer.exe` | Added |
+
+### In-menu settings panel
+
+Click the gear icon in the Start Menu to access:
+
+- **TintOpacity** slider — controls main acrylic brush opacity
+- **TintLuminosityOpacity** slider — controls secondary luminosity brush opacity
+- **Hide search box** checkbox
+- **Hide white border** checkbox
+- **Hide recommended** checkbox
+
+Settings are persisted to `HKCU\SOFTWARE\TranslucentSM` and apply immediately.
+
+## Usage
+
+Run `start.exe` — it injects `StartTAP.dll` into all target processes automatically.
+
+```
+Initializing...
+--------------------
+- Opened HKCU\SOFTWARE\TranslucentSM registry key.
+- StartMenuExperienceHost.exe PID: 12345
+- Injected ...\StartTAP.dll into StartMenuExperienceHost.exe
+- SearchHost.exe PID: 12346
+- Injected ...\StartTAP.dll into SearchHost.exe
+- ShellExperienceHost.exe PID: 12347
+- Injected ...\StartTAP.dll into ShellExperienceHost.exe
+- explorer.exe PID: 12348
+- Injecting ...\StartTAP.dll into explorer.exe via SetWindowsHookEx...
+- DLL initialized successfully!
+```
+
+## How it works
+
+The app uses `InitializeXamlDiagnosticsEx` to load `StartTAP.dll` into target processes. The DLL registers an `IVisualTreeServiceCallback2` listener and applies acrylic brush modifications when matching XAML elements appear in the visual tree.
+
+For `explorer.exe` (which does not support cross-process injection via `InitializeXamlDiagnosticsEx`), the DLL is injected via `SetWindowsHookEx` with a `WH_CALLWNDPROC` hook. The DLL then self-initializes from within the target process by calling `InitializeXamlDiagnosticsEx` locally.
+
+## Registry reference
+
+`HKCU\SOFTWARE\TranslucentSM`
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `TintOpacity` | 30 | Main acrylic brush opacity (0–100) |
+| `TintLuminosityOpacity` | 30 | Secondary luminosity brush opacity (0–100) |
+| `HideSearch` | 0 | Hide the Start Menu search box |
+| `HideBorder` | 0 | Hide the white acrylic border |
+| `HideRecommended` | 0 | Hide recommended section in Start Menu |
+| `EditButton` | 1 | Show settings gear icon in Start Menu |
+
+## Building
+
+Open `start.sln` in Visual Studio 2022 and build for **x64 Release**. NuGet packages (VC-LTL, WebView2) will restore automatically.
+
+## Credits
+
+- Original project by [rounk-ctrl](https://github.com/rounk-ctrl/TranslucentSM)
