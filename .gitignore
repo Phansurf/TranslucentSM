@@ -396,3 +396,9 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# NuGet packages restored during build
+packages/
+
+# Pre-built binaries output directory
+start/start/

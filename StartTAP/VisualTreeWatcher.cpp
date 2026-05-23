@@ -33,13 +33,19 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
 		nullptr, 0,
 		[](LPVOID lpParam) -> DWORD {
 			auto watcher = reinterpret_cast<VisualTreeWatcher*>(lpParam);
-			watcher->AdviseVisualTreeChange();
+			try {
+				watcher->AdviseVisualTreeChange();
+			} catch (...) {}
 			return 0;
 		},
 		this, 0, nullptr);
 	if (thread) {
 		CloseHandle(thread);
 	}
+
+	// In explorer, monitor for ShellExperienceHost and auto-inject when
+	// the user opens the notification panel. This avoids needing start.exe
+	// to flash the panel open just for injection.
 }
 
 void VisualTreeWatcher::AdviseVisualTreeChange() {

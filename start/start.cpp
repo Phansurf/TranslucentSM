@@ -1,4 +1,4 @@
-﻿// start.cpp : This file contains the 'main' function. Program execution begins and ends there.
+// start.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 #include <iostream>
@@ -68,6 +68,14 @@ int CreateDwords(HKEY subKey, LPCWSTR value, DWORD defVal)
 
 int main(int argc, char* argv[])
 {
+	// Attach to parent console if launched from terminal (silent if double-clicked)
+	if (AttachConsole(ATTACH_PARENT_PROCESS))
+	{
+		freopen("CONOUT$", "w", stdout);
+		freopen("CONOUT$", "w", stderr);
+		freopen("CONIN$", "r", stdin);
+	}
+
 	std::cout << "Initializing...\n--------------------\n";
 	PROCESSENTRY32 entry;
 	entry.dwSize = sizeof(PROCESSENTRY32);
@@ -184,11 +192,27 @@ int main(int argc, char* argv[])
 		}
 		std::wcout << L"\n- " << procName << L" PID: " << pid;
 
-		HRESULT hr = InitializeXamlDiagnosticsExFn(L"VisualDiagConnection1", pid, NULL, dllPathW, tapClsid, L"");
-		if (SUCCEEDED(hr))
-			std::wcout << L"\n- Injected " << dllPathW << L" into " << procName;
-		else
-			std::wcout << L"\n- Failed to inject into " << procName << L" (HRESULT: 0x" << std::hex << hr << L")";
+		HRESULT hr = E_FAIL;
+		for (int retry = 0; retry < 3; ++retry)
+		{
+			if (retry > 0)
+			{
+				std::wcout << L"\n- Retry " << retry << L" for " << procName << L"...";
+				Sleep(1000);
+			}
+
+			hr = InitializeXamlDiagnosticsExFn(L"VisualDiagConnection1", pid, NULL, dllPathW, tapClsid, L"");
+			if (SUCCEEDED(hr))
+			{
+				std::wcout << L"\n- Injected " << dllPathW << L" into " << procName;
+				return;
+			}
+			if (retry < 2)
+			{
+				std::wcout << L"\n- Attempt " << (retry + 1) << L" failed (HRESULT: 0x" << std::hex << hr << L")";
+			}
+		}
+		std::wcout << L"\n- Failed to inject into " << procName << L" (HRESULT: 0x" << std::hex << hr << L")";
 	};
 
 	auto InjectIntoExplorerViaHook = [&](const wchar_t* dllPathW) {
@@ -200,31 +224,10 @@ int main(int argc, char* argv[])
 		}
 		std::wcout << L"\n- explorer.exe PID: " << pid;
 
-		HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
-		if (!hTray)
-		{
-			std::wcout << L"\n- Could not find Shell_TrayWnd window.";
-			return;
-		}
-		DWORD tid = GetWindowThreadProcessId(hTray, nullptr);
-		std::wcout << L"\n- Taskbar thread ID: " << tid;
-
-		HANDLE hStart = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Start");
-		HANDLE hReady = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Ready");
-		if (!hStart || !hReady)
-		{
-			std::wcout << L"\n- Failed to create signaling events.";
-			if (hStart) CloseHandle(hStart);
-			if (hReady) CloseHandle(hReady);
-			return;
-		}
-
 		HMODULE hDll = LoadLibraryW(dllPathW);
 		if (!hDll)
 		{
-			std::wcout << L"\n- Failed to load " << dllPathW << L" in current process (error " << GetLastError() << L").";
-			CloseHandle(hStart);
-			CloseHandle(hReady);
+			std::wcout << L"\n- Failed to load " << dllPathW << L" (error " << GetLastError() << L").";
 			return;
 		}
 
@@ -233,52 +236,78 @@ int main(int argc, char* argv[])
 		{
 			std::wcout << L"\n- Failed to get CallWndProc address (error " << GetLastError() << L").";
 			FreeLibrary(hDll);
-			CloseHandle(hStart);
-			CloseHandle(hReady);
 			return;
 		}
 
-		std::wcout << L"\n- Injecting " << dllPathW << L" into explorer.exe via SetWindowsHookEx...";
-
-		HHOOK hHook = SetWindowsHookExW(WH_CALLWNDPROC, hookProc, hDll, tid);
-		if (!hHook)
+		for (int retry = 0; retry < 3; ++retry)
 		{
-			std::wcout << L"\n- SetWindowsHookEx failed (error " << GetLastError() << L").";
-			FreeLibrary(hDll);
+			if (retry > 0)
+			{
+				std::wcout << L"\n- Retry " << retry << L"...";
+				Sleep(1000);
+			}
+
+			HWND hTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+			if (!hTray)
+			{
+				std::wcout << L"\n- Could not find Shell_TrayWnd window.";
+				continue;
+			}
+			DWORD tid = GetWindowThreadProcessId(hTray, nullptr);
+
+			HANDLE hStart = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Start");
+			HANDLE hReady = CreateEventW(nullptr, TRUE, FALSE, L"TSM_ExplorerDiag_Ready");
+			if (!hStart || !hReady)
+			{
+				if (hStart) CloseHandle(hStart);
+				if (hReady) CloseHandle(hReady);
+				continue;
+			}
+
+			std::wcout << L"\n- Injecting " << dllPathW << L" into explorer.exe via SetWindowsHookEx...";
+
+			HHOOK hHook = SetWindowsHookExW(WH_CALLWNDPROC, hookProc, hDll, tid);
+			if (!hHook)
+			{
+				std::wcout << L"\n- SetWindowsHookEx failed (error " << GetLastError() << L").";
+				CloseHandle(hStart);
+				CloseHandle(hReady);
+				continue;
+			}
+
+			SendMessageW(hTray, WM_NULL, 0, 0);
+
+			DWORD waitResult = WaitForSingleObject(hReady, 20000);
+			if (waitResult == WAIT_OBJECT_0)
+			{
+				std::wcout << L"\n- DLL initialized successfully!";
+				UnhookWindowsHookEx(hHook);
+				CloseHandle(hStart);
+				CloseHandle(hReady);
+				FreeLibrary(hDll);
+				return;
+			}
+			else if (waitResult == WAIT_TIMEOUT)
+			{
+				std::wcout << L"\n- Timed out (attempt " << (retry + 1) << L"/3).";
+			}
+			else
+			{
+				std::wcout << L"\n- Wait failed (error " << GetLastError() << L").";
+			}
+
+			UnhookWindowsHookEx(hHook);
 			CloseHandle(hStart);
 			CloseHandle(hReady);
-			return;
 		}
 
-		PostMessageW(hTray, WM_NULL, 0, 0);
-
-		std::wcout << L"\n- Waiting for DLL to initialize XAML Diagnostics (timeout 20s)...";
-
-		DWORD waitResult = WaitForSingleObject(hReady, 20000);
-		if (waitResult == WAIT_OBJECT_0)
-		{
-			std::wcout << L"\n- DLL initialized successfully!";
-		}
-		else if (waitResult == WAIT_TIMEOUT)
-		{
-			std::wcout << L"\n- Timed out waiting for DLL initialization.";
-		}
-		else
-		{
-			std::wcout << L"\n- Wait failed (error " << GetLastError() << L").";
-		}
-
-		UnhookWindowsHookEx(hHook);
 		FreeLibrary(hDll);
-		CloseHandle(hStart);
-		CloseHandle(hReady);
 	};
 
 	if (wcscmp(ok.c_str(), L"StartMenuExperienceHost.exe") == 0)
 	{
 		InjectIntoProcess(L"StartMenuExperienceHost.exe");
 		InjectIntoProcess(L"SearchHost.exe");
-		InjectIntoProcess(L"ShellExperienceHost.exe");
 		InjectIntoExplorerViaHook(dllPathW);
 	}
 	else if (ok == L"explorer.exe")
@@ -288,6 +317,51 @@ int main(int argc, char* argv[])
 	else
 	{
 		InjectIntoProcess(ok);
+	}
+
+	// ShellExperienceHost: MUST run LAST — after explorer hook is fully
+	// established — so Win+N doesn't interfere with the overflow panel.
+	{
+		DWORD shePid = FindPid(L"ShellExperienceHost.exe");
+		if (shePid == 0)
+		{
+			keybd_event(VK_MENU, 0, 0, 0);
+			keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+			LockSetForegroundWindow(LSFW_UNLOCK);
+			INPUT winN[4] = {};
+			winN[0].type = INPUT_KEYBOARD; winN[0].ki.wVk = VK_LWIN;
+			winN[1].type = INPUT_KEYBOARD; winN[1].ki.wVk = 'N';
+			winN[2].type = INPUT_KEYBOARD; winN[2].ki.wVk = 'N'; winN[2].ki.dwFlags = KEYEVENTF_KEYUP;
+			winN[3].type = INPUT_KEYBOARD; winN[3].ki.wVk = VK_LWIN; winN[3].ki.dwFlags = KEYEVENTF_KEYUP;
+			SendInput(4, winN, sizeof(INPUT));
+			for (int i = 0; i < 30 && shePid == 0; ++i)
+			{
+				Sleep(100);
+				shePid = FindPid(L"ShellExperienceHost.exe");
+			}
+		}
+		if (shePid != 0)
+		{
+			Sleep(1500);
+			HRESULT hr = E_FAIL;
+			for (int retry = 0; retry < 30 && FAILED(hr); ++retry)
+			{
+				if (retry > 0) Sleep(500);
+				hr = InitializeXamlDiagnosticsExFn(L"VisualDiagConnection1", shePid,
+					NULL, dllPathW, tapClsid, L"");
+				if (FAILED(hr) && FindPid(L"ShellExperienceHost.exe") == 0) break;
+			}
+			INPUT esc[2] = {};
+			esc[0].type = INPUT_KEYBOARD; esc[0].ki.wVk = VK_ESCAPE;
+			esc[1].type = INPUT_KEYBOARD; esc[1].ki.wVk = VK_ESCAPE; esc[1].ki.dwFlags = KEYEVENTF_KEYUP;
+			SendInput(2, esc, sizeof(INPUT));
+			if (SUCCEEDED(hr))
+				std::wcout << L"\n- Injected " << dllPathW << L" into ShellExperienceHost.exe (PID: " << shePid << L")";
+			else
+				std::wcout << L"\n- ShellExperienceHost.exe injection failed (HRESULT: 0x" << std::hex << hr << L")";
+		}
+		else
+			std::wcout << L"\n- ShellExperienceHost.exe could not be started.";
 	}
 
 	std::cout << "\n\n";
