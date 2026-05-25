@@ -33,19 +33,11 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
 		nullptr, 0,
 		[](LPVOID lpParam) -> DWORD {
 			auto watcher = reinterpret_cast<VisualTreeWatcher*>(lpParam);
-			try {
-				watcher->AdviseVisualTreeChange();
-			} catch (...) {}
+			try { watcher->AdviseVisualTreeChange(); } catch (...) {}
 			return 0;
 		},
 		this, 0, nullptr);
-	if (thread) {
-		CloseHandle(thread);
-	}
-
-	// In explorer, monitor for ShellExperienceHost and auto-inject when
-	// the user opens the notification panel. This avoids needing start.exe
-	// to flash the panel open just for injection.
+	if (thread) CloseHandle(thread);
 }
 
 void VisualTreeWatcher::AdviseVisualTreeChange() {
@@ -118,7 +110,6 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 		{
 			dwOpacity = GetVal(L"TintOpacity");
 			dwLuminosity = GetVal(L"TintLuminosityOpacity");
-
 			if (dwOpacity > 100) dwOpacity = 100;
 			if (dwLuminosity > 100) dwLuminosity = 100;
 			Border acrylicBorder = FromHandle<Border>(element.Handle);
@@ -156,7 +147,6 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 				srch.Height(0);
 				srch.Margin({0});
 			}
-
 			if (dwHide == 1) pad = srch.ActualHeight() + srch.Padding().Bottom + srch.Padding().Top + 55;
 		}
 		else if (name == L"RootGrid")
@@ -235,7 +225,10 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 				dwLuminosity = GetVal(L"TintLuminosityOpacity");
 				if (dwOpacity > 100) dwOpacity = 100;
 				if (dwLuminosity > 100) dwLuminosity = 100;
+
 				auto border = FromHandle<Border>(element.Handle);
+
+				// Modify the existing AcrylicBrush background
 				auto bg = border.Background();
 				if (bg)
 				{
@@ -246,6 +239,21 @@ HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, Visu
 						acrylic.TintLuminosityOpacity(double(dwLuminosity) / 100);
 					}
 				}
+				else
+				{
+					// Win11 26200+: SystemBackdrop replaced AcrylicBrush,
+					// Background is NULL. Create our own brush.
+					AcrylicBrush brush;
+					brush.TintColor(Windows::UI::ColorHelper::FromArgb(255, 0, 0, 0));
+					brush.TintOpacity(double(dwOpacity) / 100);
+					brush.TintLuminosityOpacity(double(dwLuminosity) / 100);
+					brush.FallbackColor(Windows::UI::ColorHelper::FromArgb(255, 32, 32, 32));
+					border.Background(brush);
+				}
+
+				// The Opacity property controls overall panel translucency
+				// and is what actually drives the visible effect.
+				border.Opacity(1.0 - double(dwOpacity) / 200.0);
 			}
 			else if (type == L"SystemTray.NotificationAreaOverflow")
 			{

@@ -48,9 +48,11 @@ Initializing...
 
 ## How it works
 
-The app uses `InitializeXamlDiagnosticsEx` to load `StartTAP.dll` into target processes. The DLL registers an `IVisualTreeServiceCallback2` listener and applies acrylic brush modifications when matching XAML elements appear in the visual tree.
+The app uses `InitializeXamlDiagnosticsEx` to load `StartTAP.dll` into `StartMenuExperienceHost.exe`, `SearchHost.exe`, and `ShellExperienceHost.exe`. The DLL registers an `IVisualTreeServiceCallback2` listener and modifies acrylic brush properties when matching XAML elements appear in the visual tree.
 
-For `explorer.exe` (which does not support cross-process injection via `InitializeXamlDiagnosticsEx`), the DLL is injected via `SetWindowsHookEx` with a `WH_CALLWNDPROC` hook. The DLL then self-initializes from within the target process by calling `InitializeXamlDiagnosticsEx` locally.
+For `explorer.exe` (taskbar panels), cross-process `InitializeXamlDiagnosticsEx` is not supported. Instead, the DLL is injected via `SetWindowsHookEx(WH_CALLWNDPROC)`. The hook callback — not `DllMain` — spawns a background thread that calls `InitializeXamlDiagnosticsEx` from inside the target process, avoiding the loader-lock deadlock that `DllMain` would cause.
+
+Explorer panels (overflow `^`, system tray flyouts) create their XAML elements on-demand when the user opens them. The DLL's `OnVisualTreeChange` callback fires at that moment and applies acrylic modifications. On recent Windows 11 builds (26200+), these panels may use `SystemBackdrop` rendering — the `Opacity` property of the background `Border` element is used as the primary translucency driver in that case.
 
 ## Registry reference
 
